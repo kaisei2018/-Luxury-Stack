@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>高級食材テトリス</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="高級食材テトリス" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <style>
+    :root {
+      --gold: #d6b35a;
+      --bg: #0d0b09;
+      --panel: #1b1712;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background:
+        radial-gradient(circle at top, #3b2d14 0%, #0d0b09 40%, #050505 100%);
+      color: white;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    .app {
+      width: min(100vw, 430px);
+      height: 100dvh;
+      padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: .04em;
+      color: var(--gold);
+      text-shadow: 0 0 10px rgba(214,179,90,.4);
+    }
+    .score {
+      font-weight: 800;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(214,179,90,.45);
+      border-radius: 14px;
+      padding: 8px 10px;
+      min-width: 112px;
+      text-align: right;
+    }
+    .board-wrap {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+    }
+    canvas {
+      width: min(100%, calc((100dvh - 190px) / 2));
+      max-width: 360px;
+      aspect-ratio: 1 / 2;
+      background: rgba(0,0,0,.65);
+      border: 3px solid var(--gold);
+      border-radius: 18px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.5), 0 0 18px rgba(214,179,90,.28);
+      touch-action: none;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    button {
+      border: 1px solid rgba(214,179,90,.45);
+      border-radius: 16px;
+      padding: 14px 8px;
+      background: linear-gradient(#2b241a, #17130f);
+      color: white;
+      font-size: 24px;
+      font-weight: 800;
+      box-shadow: 0 5px 0 rgba(0,0,0,.35);
+    }
+    button:active {
+      transform: translateY(3px);
+      box-shadow: 0 2px 0 rgba(0,0,0,.35);
+      background: linear-gradient(#3d3324, #211a13);
+    }
+    .wide { grid-column: span 2; }
+    .hint {
+      color: rgba(255,255,255,.7);
+      text-align: center;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .install {
+      display: none;
+      font-size: 15px;
+      padding: 10px;
+      color: #111;
+      background: linear-gradient(#ffe599, #d6b35a);
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.75);
+      display: none;
+      place-items: center;
+      padding: 20px;
+    }
+    .modal.show { display: grid; }
+    .card {
+      max-width: 360px;
+      background: #17130f;
+      border: 1px solid var(--gold);
+      border-radius: 22px;
+      padding: 22px;
+      text-align: center;
+      box-shadow: 0 20px 70px rgba(0,0,0,.7);
+    }
+    .card h2 { color: var(--gold); }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <h1>🍾 高級食材テトリス</h1>
+      <div class="score">SCORE <span id="score">0</span><br><small>BEST <span id="best">0</span></small></div>
+    </header>
+
+    <button id="install" class="install">📲 アプリとしてインストール</button>
+
+    <section class="board-wrap">
+      <canvas id="game" width="300" height="600"></canvas>
+    </section>
+
+    <section class="controls">
+      <button id="left">⬅️</button>
+      <button id="rotate">🔄</button>
+      <button id="right">➡️</button>
+      <button id="down">⬇️</button>
+      <button id="drop" class="wide">⏬ 落下</button>
+    </section>
+
+    <div class="hint">
+      iPhone: Safariの共有ボタン →「ホーム画面に追加」<br>
+      Android: インストールボタン or Chromeメニューから追加
+    </div>
+  </main>
+
+  <div id="gameOver" class="modal">
+    <div class="card">
+      <h2>ゲームオーバー</h2>
+      <p>スコア <b id="finalScore">0</b></p>
+      <button id="restart">もう一度</button>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const ROWS = 20, COLS = 10, SIZE = 30;
+const foods = ["🥩","🍣","🦪","🍷","🍫","🧀","🍤","🍾","🦞","🥂","🍈","🥭"];
+const shapes = [
+  [[1,1,1,1]],
+  [[1,1],[1,1]],
+  [[0,1,0],[1,1,1]],
+  [[1,1,0],[0,1,1]],
+  [[0,1,1],[1,1,0]],
+  [[1,0,0],[1,1,1]],
+  [[0,0,1],[1,1,1]]
+];
+
+let board, piece, score, best, interval, over = false;
+best = Number(localStorage.getItem("luxury-food-tetris-best") || 0);
+document.getElementById("best").textContent = best;
+
+function randomPiece(){
+  return {
+    shape: structuredClone(shapes[Math.floor(Math.random()*shapes.length)]),
+    x: 3,
+    y: 0,
+    emoji: foods[Math.floor(Math.random()*foods.length)]
+  };
+}
+
+function reset(){
+  board = Array.from({length: ROWS}, () => Array(COLS).fill(""));
+  piece = randomPiece();
+  score = 0;
+  over = false;
+  document.getElementById("score").textContent = score;
+  document.getElementById("gameOver").classList.remove("show");
+  clearInterval(interval);
+  interval = setInterval(tick, 560);
+  draw();
+}
+
+function drawCell(x,y,emoji){
+  const grad = ctx.createLinearGradient(x*SIZE, y*SIZE, x*SIZE+SIZE, y*SIZE+SIZE);
+  grad.addColorStop(0, "#3a3022");
+  grad.addColorStop(1, "#15100c");
+  ctx.fillStyle = grad;
+  ctx.fillRect(x*SIZE+1, y*SIZE+1, SIZE-2, SIZE-2);
+  ctx.strokeStyle = "rgba(214,179,90,.5)";
+  ctx.strokeRect(x*SIZE+1, y*SIZE+1, SIZE-2, SIZE-2);
+  ctx.font = "23px serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, x*SIZE+SIZE/2, y*SIZE+SIZE/2+1);
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = "#080808";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      ctx.strokeStyle = "rgba(255,255,255,.08)";
+      ctx.strokeRect(x*SIZE,y*SIZE,SIZE,SIZE);
+      if(board[y][x]) drawCell(x,y,board[y][x]);
+    }
+  }
+
+  piece.shape.forEach((row,dy)=>{
+    row.forEach((v,dx)=>{
+      if(v) drawCell(piece.x+dx,piece.y+dy,piece.emoji);
+    });
+  });
+}
+
+function collides(test = piece){
+  return test.shape.some((row,dy)=>
+    row.some((v,dx)=>{
+      if(!v) return false;
+      const nx = test.x + dx, ny = test.y + dy;
+      return nx < 0 || nx >= COLS || ny >= ROWS || (ny >= 0 && board[ny][nx]);
+    })
+  );
+}
+
+function move(dx,dy){
+  if(over) return;
+  const next = {...piece, x: piece.x + dx, y: piece.y + dy};
+  if(collides(next)){
+    if(dy > 0) merge();
+  } else {
+    piece = next;
+  }
+  draw();
+}
+
+function rotate(){
+  if(over) return;
+  const old = piece.shape;
+  const rotated = old[0].map((_,i)=>old.map(row=>row[i]).reverse());
+  const next = {...piece, shape: rotated};
+  if(!collides(next)) piece = next;
+  draw();
+}
+
+function hardDrop(){
+  if(over) return;
+  while(!collides({...piece, y: piece.y + 1})) piece.y++;
+  merge();
+  draw();
+}
+
+function merge(){
+  piece.shape.forEach((row,dy)=>{
+    row.forEach((v,dx)=>{
+      if(v){
+        const y = piece.y+dy, x = piece.x+dx;
+        if(y >= 0 && y < ROWS && x >= 0 && x < COLS) board[y][x] = piece.emoji;
+      }
+    });
+  });
+  clearLines();
+  piece = randomPiece();
+  if(collides(piece)) gameOver();
+}
+
+function clearLines(){
+  let cleared = 0;
+  board = board.filter(row=>{
+    if(row.every(Boolean)){ cleared++; return false; }
+    return true;
+  });
+  while(board.length < ROWS) board.unshift(Array(COLS).fill(""));
+  if(cleared){
+    score += [0,100,300,600,1000][cleared] || cleared*250;
+    document.getElementById("score").textContent = score;
+    if(score > best){
+      best = score;
+      localStorage.setItem("luxury-food-tetris-best", best);
+      document.getElementById("best").textContent = best;
+    }
+  }
+}
+
+function gameOver(){
+  over = true;
+  clearInterval(interval);
+  document.getElementById("finalScore").textContent = score;
+  document.getElementById("gameOver").classList.add("show");
+}
+
+function tick(){ move(0,1); }
+
+document.getElementById("left").onclick = () => move(-1,0);
+document.getElementById("right").onclick = () => move(1,0);
+document.getElementById("down").onclick = () => move(0,1);
+document.getElementById("rotate").onclick = rotate;
+document.getElementById("drop").onclick = hardDrop;
+document.getElementById("restart").onclick = reset;
+
+document.addEventListener("keydown", e => {
+  if(e.key === "ArrowLeft") move(-1,0);
+  if(e.key === "ArrowRight") move(1,0);
+  if(e.key === "ArrowDown") move(0,1);
+  if(e.key === "ArrowUp") rotate();
+  if(e.key === " ") hardDrop();
+});
+
+let sx=0, sy=0;
+canvas.addEventListener("touchstart", e => {
+  sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+}, {passive:true});
+canvas.addEventListener("touchend", e => {
+  const dx = e.changedTouches[0].clientX - sx;
+  const dy = e.changedTouches[0].clientY - sy;
+  if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 24) move(dx>0?1:-1,0);
+  else if(dy > 28) move(0,1);
+  else rotate();
+}, {passive:true});
+
+let deferredPrompt;
+const installBtn = document.getElementById("install");
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBtn.style.display = "block";
+});
+installBtn.onclick = async () => {
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  installBtn.style.display = "none";
+};
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+}
+reset();
+</script>
+</body>
+</html>
